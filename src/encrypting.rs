@@ -10,7 +10,16 @@ const MAGIC: &[u8] = b"ENCR";
 
 pub fn encrypt_file(path: String, password:String) -> Result<Option<String>, Box<dyn std::error::Error>>{
 
-    let data = fs::read(Path::new(&path)).expect("failed to read file");
+    if Path::new(&path).is_dir() {
+        recursively(&path, &password, encrypt_file);
+        return Ok(None);
+    }
+
+    let data = match fs::read(Path::new(&path)) {
+        Ok(d) => d,
+        Err(_)=> {println!("skipping {path}"); return Ok(None);}
+        
+    };
 
         if data.starts_with(MAGIC) {
         panic!("file is already encrypted");
@@ -37,15 +46,25 @@ pub fn encrypt_file(path: String, password:String) -> Result<Option<String>, Box
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&ciphertext);
 
-    fs::write(path, out)?;
-    
+    fs::write(&path, out)?;
+    println!("encrypted {path}");
     Ok(Some(String::from("successfully encrypted")))
 
 }  
 
 pub fn decrypt_file(path:String, password:String) -> Result<Option<String>, Box<dyn std::error::Error>>{
 
-    let data = fs::read(&path)?;
+    
+    if Path::new(&path).is_dir() {
+        recursively(&path, &password, decrypt_file);
+        return Ok(None);
+    }
+    
+    let data = match fs::read(Path::new(&path)) {
+        Ok(d) => d,
+        Err(_)=> {println!("skipping {path}"); return Ok(None);}
+        
+    };
 
     if !data.starts_with(MAGIC) {
         panic!("not encrypted or already decrypted");
@@ -67,8 +86,15 @@ pub fn decrypt_file(path:String, password:String) -> Result<Option<String>, Box<
 
     let text_bytes = cipher.decrypt(nonce_bytes.try_into()?, ciphertext).expect("failed to decrypt");
 
-    
-    let text = String::from_utf8_lossy(&text_bytes.as_slice());
+    fs::write(&path, text_bytes)?;
+    println!("decrypted {path}");
+    Ok(Some(String::from("successfully decrypted")))
 
-    Ok(Some(text.to_string()))
+}
+
+
+pub fn recursively<F>(path:&String, password:&String, operation: F) where F:Fn(String, String) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    for file in fs::read_dir(path).expect("failed to read directory") {
+        operation(file.unwrap().path().to_string_lossy().to_string(), password.to_owned()).expect("failed to execute operation");
+        }
 }
